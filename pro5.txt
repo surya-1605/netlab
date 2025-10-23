@@ -1,0 +1,101 @@
+(Server side)
+import java.io.*;
+import java.net.*;
+import java.util.concurrent.TimeUnit;
+
+public class sender {
+    public static void main(String[] args) throws IOException {
+        Socket socket = new Socket("localhost", 9876);
+        System.out.println("[Sender] Connected to receiver.");
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+
+        String[] messages = {"Hello", "World", "Stop", "And", "Wait", "Protocol"};
+        int seqNum = 0;
+
+        for (String msg : messages) {
+            boolean ackReceived = false;
+
+            while (!ackReceived) {
+                String packet = seqNum + ":" + msg;
+                System.out.println("[Sender] Sending packet Seq#" + seqNum + ", Data: " + msg);
+                out.println(packet);
+
+                // Wait for ACK with timeout
+                try {
+                    socket.setSoTimeout(2000);  // 2 seconds timeout
+                    String ackStr = in.readLine();
+
+                    if (ackStr == null) {
+                        System.out.println("[Sender] No ACK received, resending...");
+                        continue;
+                    }
+
+                    int ackNum = Integer.parseInt(ackStr.trim());
+                    if (ackNum == seqNum) {
+                        System.out.println("[Sender] ACK " + ackNum + " received. Proceeding to next packet.\n");
+                        ackReceived = true;
+                        seqNum = 1 - seqNum;  // flip seq number
+                    } else {
+                        System.out.println("[Sender] Incorrect ACK " + ackNum + ". Resending...");
+                    }
+
+                } catch (SocketTimeoutException e) {
+                    System.out.println("[Sender] Timeout waiting for ACK. Resending packet...");
+                }
+            }
+        }
+
+        socket.close();
+        System.out.println("[Sender] All messages sent successfully.");
+    }
+}
+
+
+
+
+
+
+
+(Client side)
+import java.io.*;
+import java.net.*;
+
+public class receiver {
+    public static void main(String[] args) throws IOException {
+        ServerSocket serverSocket = new ServerSocket(9876);
+        System.out.println("[Receiver] Waiting for connection...");
+        Socket socket = serverSocket.accept();
+        System.out.println("[Receiver] Connected to sender.");
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+
+        int expectedSeqNum = 0;
+
+        String line;
+        while ((line = in.readLine()) != null) {
+            // Packet format: "seqNum:data"
+            String[] parts = line.split(":", 2);
+            int seqNum = Integer.parseInt(parts[0]);
+            String data = parts[1];
+
+            System.out.println("[Receiver] Received packet Seq#" + seqNum + ", Data: " + data);
+
+            if (seqNum == expectedSeqNum) {
+                System.out.println("[Receiver] Packet accepted. Sending ACK " + seqNum);
+                out.println(seqNum);  // Send ACK
+                expectedSeqNum = 1 - expectedSeqNum;  // flip expected sequence number
+            } else {
+                // Duplicate packet, resend last ACK
+                System.out.println("[Receiver] Duplicate packet. Resending ACK " + (1 - expectedSeqNum));
+                out.println(1 - expectedSeqNum);
+            }
+        }
+
+        socket.close();
+        serverSocket.close();
+        System.out.println("[Receiver] Connection closed.");
+    }
+}
